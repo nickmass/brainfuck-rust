@@ -5,7 +5,7 @@ use std::fs::File;
 use std::path::Path;
 use std::io::BufReader;
 use std::io::Read;
-use std::borrow::Borrow;
+use std::borrow::{Borrow, Cow};
 use std::collections::VecDeque;
 
 #[derive(Debug)]
@@ -22,6 +22,7 @@ enum Symbol<'a> {
 
 #[derive(Debug)]
 struct DebugInfo<'a> {
+    directory: &'a str,
     file: &'a str,
     line: u32,
     column: u32,
@@ -33,6 +34,7 @@ fn main() {
     let input_file = args.next().expect("No source file specified");
     let input_path = Path::new(&input_file);
     let file_name = input_path.file_name().expect("No source file specified").to_string_lossy();
+    let directory = input_path.parent().map(|x| x.to_string_lossy()).unwrap_or(Cow::Borrowed(""));
     let source = File::open(input_path).expect("Could not open source file.");
     let reader = BufReader::new(source);
 
@@ -41,6 +43,7 @@ fn main() {
     let mut column = 1;
     for byte in reader.bytes() {
         let debug = DebugInfo {
+            directory: directory.borrow(),
             file: file_name.borrow(),
             line: line,
             column: column,
@@ -59,7 +62,6 @@ fn main() {
             b'\n' => {
                 line += 1;
                 column = 0;
-                continue;
             },
             _ => (),
         }
@@ -71,13 +73,18 @@ fn main() {
     match ast {
         Ok(mut ast) => {
             ast.optimize();
-            let prog = Program::new(ast, 4096);
-            //prog.exec();
-            let ir = prog.gen_ir();
-            println!("{}", ir);
+            let prog = Program::new(ast, 100000);
+            match prog.exec() {
+                Err(ExecError::OutOfBounds(d)) => {
+                    println!("exception: out of bounds memory access --> {}:{}:{}", d.file, d.line, d.column);
+                },
+                _ => ()
+            }
+            //let ir = prog.gen_ir();
+            //println!("{}", ir);
         },
         Err(ParseError::UnmatchedLoop(d)) => {
-            println!("Unmatched Loop: {} {}:{}", d.file, d.line, d.column);
+            println!("error: unmatched loop --> {}:{}:{}", d.file, d.line, d.column);
         }
     }
 }
@@ -259,18 +266,14 @@ impl ProgramState {
         for _ in 0..mem_size { mem.push(0); }
 
         ProgramState {
-            ptr: 0,
+            ptr: mem_size / 2,
             mem: mem,
             mem_size: mem_size,
         }
     }
 
-    fn read(&self) -> u8 {
-        self.mem[self.ptr % self.mem_size]
-    }
-
-    fn write(&mut self, value: u8) {
-        self.mem[self.ptr % self.mem_size] = value;
+    fn is_oob(&self) -> bool {
+        self.ptr >= self.mem_size
     }
 }
 
@@ -298,6 +301,10 @@ impl IrState {
     }
 }
 
+enum ExecError<'a> {
+    OutOfBounds(&'a DebugInfo<'a>)
+}
+
 impl<'a> Program<'a> {
     pub fn new(ast: Ast<'a>, mem_size: usize) -> Program<'a> {
         let prog = Program {
@@ -308,36 +315,62 @@ impl<'a> Program<'a> {
         prog
     }
 
-    pub fn exec(&self) {
+    pub fn exec(&'a self) -> Result<(), ExecError<'a>> {
         let mut state = ProgramState::new(self.mem_size);
-        Self::exec_nodes(&mut state, &self.ast.nodes);
+        Self::exec_nodes(&mut state, &self.ast.nodes)
     }
 
-    fn exec_nodes(state: &mut ProgramState, nodes: &VecDeque<Node>) {
+    fn exec_nodes(state: &mut ProgramState, nodes: &'a VecDeque<Node<'a>>)
+                  -> Result<(), ExecError<'a>> {
         for node in nodes {
             match node {
                 &Node::IncPtr(v, _) => state.ptr = state.ptr.wrapping_add(v),
                 &Node::DecPtr(v, _) => state.ptr = state.ptr.wrapping_sub(v),
-                &Node::Increment(v, _) => {
-                    let val = state.read().wrapping_add(v);
-                    state.mem[state.ptr % state.mem_size] = val;
+                &Node::Increment(v, ref d) => {
+                    if state.is_oob() {
+                        return Err(ExecError::OutOfBounds(d))
+                    }
+                    let val = state.mem[state.ptr].wrapping_add(v);
+                    state.mem[state.ptr] = val;
                 },
-                &Node::Decrement(v, _) => {
-                    let val = state.read().wrapping_sub(v);
-                    state.mem[state.ptr % state.mem_size] = val;
+                &Node::Decrement(v, ref d) => {
+                    if state.is_oob() {
+                        return Err(ExecError::OutOfBounds(d))
+                    }
+                    let val = state.mem[state.ptr].wrapping_sub(v);
+                    state.mem[state.ptr] = val;
                 },
-                &Node::Output(_) => print!("{}", state.read() as char),
-                &Node::Input(_) => {
+                &Node::Output(ref d) => {
+                    if state.is_oob() {
+                        return Err(ExecError::OutOfBounds(d))
+                    }
+                    print!("{}", state.mem[state.ptr] as char)
+                },
+                &Node::Input(ref d) => {
                     let val = unsafe { libc::getchar() };
-                    state.mem[state.ptr % state.mem_size] = val as u8;
+                    if state.is_oob() {
+                        return Err(ExecError::OutOfBounds(d))
+                    }
+                    state.mem[state.ptr] = val as u8;
                 },
-                &Node::Loop(ref nodes, _) => {
-                    while state.read() != 0 {
-                        Self::exec_nodes(state, nodes);
+                &Node::Loop(ref nodes, ref d) => {
+                    if state.is_oob() {
+                        return Err(ExecError::OutOfBounds(d))
+                    }
+                    while state.mem[state.ptr] != 0 {
+                        match Self::exec_nodes(state, nodes) {
+                            Err(e) => return Err(e),
+                            _ => (),
+                        }
+                        if state.is_oob() {
+                            return Err(ExecError::OutOfBounds(d))
+                        }
                     }
                 },
             }
         }
+
+        Ok(())
     }
 
     pub fn gen_ir(&self) -> String {
@@ -349,7 +382,7 @@ declare i32 @putchar(i32)
 define i32 @main() {{
 \t%mem = alloca i8, i32 {}
 \t%ptr = alloca i32
-\tstore i32 0, i32* %ptr", self.mem_size);
+\tstore i32 0, i32* %ptr", self.mem_size / 2);
         ir.push_str(&prelude);
         Self::gen_ir_nodes(&mut ir, &mut ir_state, &self.ast.nodes);
         let epilogue = format!("
