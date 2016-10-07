@@ -74,14 +74,16 @@ fn main() {
         Ok(mut ast) => {
             ast.optimize();
             let prog = Program::new(ast, 100000);
+/*
             match prog.exec() {
                 Err(ExecError::OutOfBounds(d)) => {
                     println!("exception: out of bounds memory access --> {}:{}:{}", d.file, d.line, d.column);
                 },
                 _ => ()
             }
-            //let ir = prog.gen_ir();
-            //println!("{}", ir);
+             */
+            let ir = prog.gen_ir();
+            println!("{}", ir);
         },
         Err(ParseError::UnmatchedLoop(d)) => {
             println!("error: unmatched loop --> {}:{}:{}", d.file, d.line, d.column);
@@ -382,7 +384,7 @@ declare i32 @putchar(i32)
 define i32 @main() {{
 \t%mem = alloca i8, i32 {}
 \t%ptr = alloca i32
-\tstore i32 0, i32* %ptr", self.mem_size / 2);
+\tstore i32 {}, i32* %ptr", self.mem_size, self.mem_size / 2);
         ir.push_str(&prelude);
         Self::gen_ir_nodes(&mut ir, &mut ir_state, &self.ast.nodes);
         let epilogue = format!("
@@ -399,18 +401,20 @@ define i32 @main() {{
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let r = format!("
-\t{0} = load i32* %ptr
-\t{1} = add i32 {0}, {value}
-\tstore i32 {1}, i32* %ptr", i0, i1, value=v);
+\t{ptr} = load i32* %ptr
+\t{mem_ptr} = add i32 {ptr}, {value}
+\tstore i32 {mem_ptr}, i32* %ptr",
+                                    ptr=i0, mem_ptr=i1, value=v);
                     ir.push_str(&r);
                 },
                 &Node::DecPtr(v, _) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let r = format!("
-\t{0} = load i32* %ptr
-\t{1} = sub i32 {0}, {value}
-\tstore i32 {1}, i32* %ptr", i0, i1, value=v);
+\t{ptr} = load i32* %ptr
+\t{mem_ptr} = sub i32 {ptr}, {value}
+\tstore i32 {mem_ptr}, i32* %ptr",
+                                    ptr=i0, mem_ptr=i1, value=v);
                     ir.push_str(&r);
                 },
                 &Node::Increment(v, _) => {
@@ -418,14 +422,13 @@ define i32 @main() {{
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let i4 = state.ident();
                     let r = format!("
-\t{1} = load i32* %ptr;
-\t{2} = urem i32 {1}, {0}
-\t{3} = getelementptr i8* %mem, i32 {2}
-\t{4} = load i8* {3}
-\t{5} = add i8 {4}, {value}
-\tstore i8 {5}, i8* {3}", state.mem_size, i0, i1, i2, i3, i4, value=v);
+\t{ptr} = load i32* %ptr;
+\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
+\t{mem_val} = load i8* {mem_ptr}
+\t{new_mem_val} = add i8 {mem_val}, {value}
+\tstore i8 {new_mem_val}, i8* {mem_ptr}",
+                                    ptr=i0,  mem_ptr=i1, mem_val=i2, new_mem_val=i3, value=v);
                     ir.push_str(&r);
                 },
                 &Node::Decrement(v, _) => {
@@ -433,14 +436,13 @@ define i32 @main() {{
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let i4 = state.ident();
                     let r = format!("
-\t{1} = load i32* %ptr;
-\t{2} = urem i32 {1}, {0}
-\t{3} = getelementptr i8* %mem, i32 {2}
-\t{4} = load i8* {3}
-\t{5} = sub i8 {4}, {value}
-\tstore i8 {5}, i8* {3}", state.mem_size, i0, i1, i2, i3, i4, value=v);
+\t{ptr} = load i32* %ptr;
+\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
+\t{mem_val} = load i8* {mem_ptr}
+\t{new_mem_val} = sub i8 {mem_val}, {value}
+\tstore i8 {new_mem_val}, i8* {mem_ptr}",
+                    ptr=i0,  mem_ptr=i1, mem_val=i2, new_mem_val=i3, value=v);
                     ir.push_str(&r);
                 },
                 &Node::Output(_) => {
@@ -448,14 +450,13 @@ define i32 @main() {{
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let i4 = state.ident();
                     let r = format!("
-\t{1} = load i32* %ptr;
-\t{2} = urem i32 {1}, {0}
-\t{3} = getelementptr i8* %mem, i32 {2}
-\t{4} = load i8* {3}
-\t{5} = sext i8 {4} to i32
-\tcall i32 @putchar(i32 {5})", state.mem_size, i0, i1, i2, i3, i4);
+\t{ptr} = load i32* %ptr;
+\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
+\t{mem_val} = load i8* {mem_ptr}
+\t{mem_val_32} = sext i8 {mem_val} to i32
+\tcall i32 @putchar(i32 {mem_val_32})",
+                                    ptr=i0,  mem_ptr=i1, mem_val=i2, mem_val_32=i3);
                     ir.push_str(&r);
                 },
                 &Node::Input(_) => {
@@ -463,14 +464,13 @@ define i32 @main() {{
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let i4 = state.ident();
                     let r = format!("
-\t{1} = load i32* %ptr;
-\t{2} = urem i32 {1}, {0}
-\t{3} = getelementptr i8* %mem, i32 {2}
-\t{4} = call i32 @getchar()
-\t{5} = trunc i32 {4} to i8
-\tstore i8 {5}, i8* {3}", state.mem_size, i0, i1, i2, i3, i4);
+\t{ptr} = load i32* %ptr;
+\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
+\t{input} = call i32 @getchar()
+\t{input_8} = trunc i32 {input} to i8
+\tstore i8 {input_8}, i8* {mem_ptr}",
+                                    ptr=i0,  mem_ptr=i1, input=i2, input_8=i3);
                     ir.push_str(&r);
                 },
                 &Node::Loop(ref nodes, _) => {
@@ -478,20 +478,18 @@ define i32 @main() {{
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let i4 = state.ident();
                     let header =state.label();
                     let body = state.label();
                     let end = state.label();
                     let r = format!("
 \tbr label %{header}
 {header}:
-\t{1} = load i32* %ptr;
-\t{2} = urem i32 {1}, {0}
-\t{3} = getelementptr i8* %mem, i32 {2}
-\t{4} = load i8* {3}
-\t{5} = icmp eq i8 0, {4}
-\tbr i1 {5}, label %{end}, label %{body}
-{body}:", state.mem_size, i0, i1, i2, i3, i4, header=header, body=body, end=end);
+\t{ptr} = load i32* %ptr;
+\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
+\t{mem_val} = load i8* {mem_ptr}
+\t{comp} = icmp eq i8 0, {mem_val}
+\tbr i1 {comp}, label %{end}, label %{body}
+{body}:", ptr=i0, mem_ptr=i1, mem_val=i2, comp=i3, header=header, body=body, end=end);
                     ir.push_str(&r);
                     Self::gen_ir_nodes(ir, state, nodes);
                     let r = format!("
