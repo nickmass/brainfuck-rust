@@ -286,19 +286,18 @@ impl<'a> Program<'a> {
     pub fn gen_ir(&self) -> String {
         let mut ir = String::new();
         let mut ir_state = IrState::new(self.mem_size);
-        let prelude = format!(r#"
+        let prelude = format!("
 declare i32 @getchar()
 declare i32 @putchar(i32)
 define i32 @main() {{
-%mem = alloca i8, i32 {}
-%ptr = alloca i32
-store i32 0, i32* %ptr
-"#, self.mem_size);
+\t%mem = alloca i8, i32 {}
+\t%ptr = alloca i32
+\tstore i32 0, i32* %ptr", self.mem_size);
         ir.push_str(&prelude);
         Self::gen_ir_nodes(&mut ir, &mut ir_state, &self.ast.nodes);
-        let epilogue = format!(r#"
-ret i32 0
-}}"#);
+        let epilogue = format!("
+\tret i32 0
+}}");
         ir.push_str(&epilogue);
         ir
     }
@@ -309,19 +308,19 @@ ret i32 0
                 &Node::IncPtr(_) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
-                    let r = format!(r#"
-{0} = load i32* %ptr
-{1} = add i32 1, {0}
-store i32 {1}, i32* %ptr"#, i0, i1);
+                    let r = format!("
+\t{0} = load i32* %ptr
+\t{1} = add i32 1, {0}
+\tstore i32 {1}, i32* %ptr", i0, i1);
                     ir.push_str(&r);
                 },
                 &Node::DecPtr(_) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
-                    let r = format!(r#"
-{0} = load i32* %ptr
-{1} = sub i32 {0}, 1
-store i32 {1}, i32* %ptr"#, i0, i1);
+                    let r = format!("
+\t{0} = load i32* %ptr
+\t{1} = sub i32 {0}, 1
+\tstore i32 {1}, i32* %ptr", i0, i1);
                     ir.push_str(&r);
                 },
                 &Node::Increment(_) => {
@@ -330,13 +329,13 @@ store i32 {1}, i32* %ptr"#, i0, i1);
                     let i2 = state.ident();
                     let i3 = state.ident();
                     let i4 = state.ident();
-                    let r = format!(r#"
-{1} = load i32* %ptr;
-{2} = urem i32 {1}, {0}
-{3} = getelementptr i8* %mem, i32 {2}
-{4} = load i8* {3}
-{5} = add i8 {4}, 1
-store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
+                    let r = format!("
+\t{1} = load i32* %ptr;
+\t{2} = urem i32 {1}, {0}
+\t{3} = getelementptr i8* %mem, i32 {2}
+\t{4} = load i8* {3}
+\t{5} = add i8 {4}, 1
+\tstore i8 {5}, i8* {3}", state.mem_size, i0, i1, i2, i3, i4);
                     ir.push_str(&r);
                 },
                 &Node::Decrement(_) => {
@@ -345,13 +344,13 @@ store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
                     let i2 = state.ident();
                     let i3 = state.ident();
                     let i4 = state.ident();
-                    let r = format!(r#"
-{1} = load i32* %ptr;
-{2} = urem i32 {1}, {0}
-{3} = getelementptr i8* %mem, i32 {2}
-{4} = load i8* {3}
-{5} = sub i8 {4}, 1
-store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
+                    let r = format!("
+\t{1} = load i32* %ptr;
+\t{2} = urem i32 {1}, {0}
+\t{3} = getelementptr i8* %mem, i32 {2}
+\t{4} = load i8* {3}
+\t{5} = sub i8 {4}, 1
+\tstore i8 {5}, i8* {3}", state.mem_size, i0, i1, i2, i3, i4);
                     ir.push_str(&r);
                 },
                 &Node::Output(_) => {
@@ -360,14 +359,13 @@ store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
                     let i2 = state.ident();
                     let i3 = state.ident();
                     let i4 = state.ident();
-                    let r = format!(r#"
-{1} = load i32* %ptr;
-{2} = urem i32 {1}, {0}
-{3} = getelementptr i8* %mem, i32 {2}
-{4} = load i8* {3}
-{5} = sext i8 {4} to i32
-call i32 @putchar(i32 {5})
-"#, state.mem_size, i0, i1, i2, i3, i4);
+                    let r = format!("
+\t{1} = load i32* %ptr;
+\t{2} = urem i32 {1}, {0}
+\t{3} = getelementptr i8* %mem, i32 {2}
+\t{4} = load i8* {3}
+\t{5} = sext i8 {4} to i32
+\tcall i32 @putchar(i32 {5})", state.mem_size, i0, i1, i2, i3, i4);
                     ir.push_str(&r);
                 },
                 &Node::Input(_) => {
@@ -376,13 +374,13 @@ call i32 @putchar(i32 {5})
                     let i2 = state.ident();
                     let i3 = state.ident();
                     let i4 = state.ident();
-                    let r = format!(r#"
-{1} = load i32* %ptr;
-{2} = urem i32 {1}, {0}
-{3} = getelementptr i8* %mem, i32 {2}
-{4} = call i32 @getchar()
-{5} = trunc i32 {4} to i8
-store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
+                    let r = format!("
+\t{1} = load i32* %ptr;
+\t{2} = urem i32 {1}, {0}
+\t{3} = getelementptr i8* %mem, i32 {2}
+\t{4} = call i32 @getchar()
+\t{5} = trunc i32 {4} to i8
+\tstore i8 {5}, i8* {3}", state.mem_size, i0, i1, i2, i3, i4);
                     ir.push_str(&r);
                 },
                 &Node::Loop(_,ref nodes) => {
@@ -394,21 +392,21 @@ store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
                     let header =state.label();
                     let body = state.label();
                     let end = state.label();
-                    let r = format!(r#"
-br label %{header}
+                    let r = format!("
+\tbr label %{header}
 {header}:
-{1} = load i32* %ptr;
-{2} = urem i32 {1}, {0}
-{3} = getelementptr i8* %mem, i32 {2}
-{4} = load i8* {3}
-{5} = icmp eq i8 0, {4}
-br i1 {5}, label %{end}, label %{body}
-{body}:"#, state.mem_size, i0, i1, i2, i3, i4, header=header, body=body, end=end);
+\t{1} = load i32* %ptr;
+\t{2} = urem i32 {1}, {0}
+\t{3} = getelementptr i8* %mem, i32 {2}
+\t{4} = load i8* {3}
+\t{5} = icmp eq i8 0, {4}
+\tbr i1 {5}, label %{end}, label %{body}
+{body}:", state.mem_size, i0, i1, i2, i3, i4, header=header, body=body, end=end);
                     ir.push_str(&r);
                     Self::gen_ir_nodes(ir, state, nodes);
-                    let r = format!(r#"
-br label %{header}
-{end}:"#, header=header, end=end);
+                    let r = format!("
+\tbr label %{header}
+{end}:", header=header, end=end);
                     ir.push_str(&r);
 
                 },
