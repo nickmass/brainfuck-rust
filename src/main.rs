@@ -1,3 +1,5 @@
+extern crate libc;
+
 use std::env;
 use std::fs::File;
 use std::path::Path;
@@ -268,7 +270,10 @@ impl<'a> Program<'a> {
                     state.mem[state.ptr % state.mem_size] = val;
                 },
                 &Node::Output(_) => print!("{}", state.read() as char),
-                &Node::Input(_) => (),
+                &Node::Input(_) => {
+                    let val = unsafe { libc::getchar() };
+                    state.mem[state.ptr % state.mem_size] = val as u8;
+                },
                 &Node::Loop(_,ref nodes) => {
                     while state.read() != 0 {
                         Self::exec_nodes(state, nodes);
@@ -282,6 +287,7 @@ impl<'a> Program<'a> {
         let mut ir = String::new();
         let mut ir_state = IrState::new(self.mem_size);
         let prelude = format!(r#"
+declare i32 @getchar()
 declare i32 @putchar(i32)
 define i32 @main() {{
 %mem = alloca i8, i32 {}
@@ -364,7 +370,21 @@ call i32 @putchar(i32 {5})
 "#, state.mem_size, i0, i1, i2, i3, i4);
                     ir.push_str(&r);
                 },
-                &Node::Input(_) => (),
+                &Node::Input(_) => {
+                    let i0 = state.ident();
+                    let i1 = state.ident();
+                    let i2 = state.ident();
+                    let i3 = state.ident();
+                    let i4 = state.ident();
+                    let r = format!(r#"
+{1} = load i32* %ptr;
+{2} = urem i32 {1}, {0}
+{3} = getelementptr i8* %mem, i32 {2}
+{4} = call i32 @getchar()
+{5} = trunc i32 {4} to i8
+store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
+                    ir.push_str(&r);
+                },
                 &Node::Loop(_,ref nodes) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
