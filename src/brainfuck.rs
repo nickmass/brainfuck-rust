@@ -268,14 +268,12 @@ impl ProgramState {
 
 struct IrState {
     next_label: i32,
-    mem_size: usize,
 }
 
 impl IrState {
-    fn new(mem_size: usize) -> IrState {
+    fn new() -> IrState {
         IrState {
             next_label: 0,
-            mem_size: mem_size,
         }
     }
 
@@ -364,7 +362,7 @@ impl<'a> Program<'a> {
 
     fn gen_ir(&self) -> String {
         let mut ir = String::new();
-        let mut ir_state = IrState::new(self.mem_size);
+        let mut ir_state = IrState::new();
         let prelude = format!("
 declare i32 @getchar()
 declare i32 @putchar(i32)
