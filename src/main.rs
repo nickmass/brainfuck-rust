@@ -37,8 +37,8 @@ fn main() {
     let reader = BufReader::new(source);
 
     let mut symbols = VecDeque::new();
-    let mut line = 0;
-    let mut column = 0;
+    let mut line = 1;
+    let mut column = 1;
     for byte in reader.bytes() {
         let debug = DebugInfo {
             file: file_name.borrow(),
