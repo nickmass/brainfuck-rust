@@ -68,8 +68,10 @@ fn main() {
 
     match ast {
         Ok(ast) => {
-            let mut prog = Program::new(ast, 4096);
-            prog.exec();
+            let prog = Program::new(ast, 4096);
+            //prog.exec();
+            let ir = prog.gen_ir();
+            println!("{}", ir);
         },
         Err(ParseError::UnmatchedLoop(d)) => {
             println!("Unmatched Loop: {} {}:{}", d.file, d.line, d.column);
@@ -183,7 +185,6 @@ impl<'a> Ast<'a> {
 
 struct Program<'a> {
     ast: Ast<'a>,
-    state: ProgramState,
     mem_size: usize, 
 }
 
@@ -214,25 +215,43 @@ impl ProgramState {
     }
 }
 
+struct IrState {
+    next_label: i32,
+    mem_size: usize,
+}
+
+impl IrState {
+    pub fn new(mem_size: usize) -> IrState {
+        IrState {
+            next_label: 0,
+            mem_size: mem_size,
+        }
+    }
+
+    fn ident(&mut self) -> String {
+        self.next_label += 1;
+        format!("%i{}", self.next_label)
+    }
+
+    fn label(&mut self) -> String {
+        self.next_label += 1;
+        format!("l{}", self.next_label)
+    }
+}
+
 impl<'a> Program<'a> {
     pub fn new(ast: Ast<'a>, mem_size: usize) -> Program<'a> {
         let prog = Program {
             ast: ast,
             mem_size: mem_size,
-            state: ProgramState::new(mem_size),
         };
 
         prog
     }
 
-    fn reset(&mut self) {
-        self.state = ProgramState::new(self.mem_size);
-    }
-
-    pub fn exec(&mut self) {
-        self.reset();
-
-        Self::exec_nodes(&mut self.state, &self.ast.nodes);
+    pub fn exec(&self) {
+        let mut state = ProgramState::new(self.mem_size);
+        Self::exec_nodes(&mut state, &self.ast.nodes);
     }
 
     fn exec_nodes(state: &mut ProgramState, nodes: &Vec<Node>) {
@@ -254,6 +273,124 @@ impl<'a> Program<'a> {
                     while state.read() != 0 {
                         Self::exec_nodes(state, nodes);
                     }
+                },
+            }
+        }
+    }
+
+    pub fn gen_ir(&self) -> String {
+        let mut ir = String::new();
+        let mut ir_state = IrState::new(self.mem_size);
+        let prelude = format!(r#"
+declare i32 @putchar(i32)
+define i32 @main() {{
+%mem = alloca i8, i32 {}
+%ptr = alloca i32
+store i32 0, i32* %ptr
+"#, self.mem_size);
+        ir.push_str(&prelude);
+        Self::gen_ir_nodes(&mut ir, &mut ir_state, &self.ast.nodes);
+        let epilogue = format!(r#"
+ret i32 0
+}}"#);
+        ir.push_str(&epilogue);
+        ir
+    }
+
+    pub fn gen_ir_nodes(ir: &mut String, state: &mut IrState, nodes: &Vec<Node>) {
+        for node in nodes {
+            match node {
+                &Node::IncPtr(_) => {
+                    let i0 = state.ident();
+                    let i1 = state.ident();
+                    let r = format!(r#"
+{0} = load i32* %ptr
+{1} = add i32 1, {0}
+store i32 {1}, i32* %ptr"#, i0, i1);
+                    ir.push_str(&r);
+                },
+                &Node::DecPtr(_) => {
+                    let i0 = state.ident();
+                    let i1 = state.ident();
+                    let r = format!(r#"
+{0} = load i32* %ptr
+{1} = sub i32 {0}, 1
+store i32 {1}, i32* %ptr"#, i0, i1);
+                    ir.push_str(&r);
+                },
+                &Node::Increment(_) => {
+                    let i0 = state.ident();
+                    let i1 = state.ident();
+                    let i2 = state.ident();
+                    let i3 = state.ident();
+                    let i4 = state.ident();
+                    let r = format!(r#"
+{1} = load i32* %ptr;
+{2} = urem i32 {1}, {0}
+{3} = getelementptr i8* %mem, i32 {2}
+{4} = load i8* {3}
+{5} = add i8 {4}, 1
+store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
+                    ir.push_str(&r);
+                },
+                &Node::Decrement(_) => {
+                    let i0 = state.ident();
+                    let i1 = state.ident();
+                    let i2 = state.ident();
+                    let i3 = state.ident();
+                    let i4 = state.ident();
+                    let r = format!(r#"
+{1} = load i32* %ptr;
+{2} = urem i32 {1}, {0}
+{3} = getelementptr i8* %mem, i32 {2}
+{4} = load i8* {3}
+{5} = sub i8 {4}, 1
+store i8 {5}, i8* {3}"#, state.mem_size, i0, i1, i2, i3, i4);
+                    ir.push_str(&r);
+                },
+                &Node::Output(_) => {
+                    let i0 = state.ident();
+                    let i1 = state.ident();
+                    let i2 = state.ident();
+                    let i3 = state.ident();
+                    let i4 = state.ident();
+                    let r = format!(r#"
+{1} = load i32* %ptr;
+{2} = urem i32 {1}, {0}
+{3} = getelementptr i8* %mem, i32 {2}
+{4} = load i8* {3}
+{5} = sext i8 {4} to i32
+call i32 @putchar(i32 {5})
+"#, state.mem_size, i0, i1, i2, i3, i4);
+                    ir.push_str(&r);
+                },
+                &Node::Input(_) => (),
+                &Node::Loop(_,ref nodes) => {
+                    let i0 = state.ident();
+                    let i1 = state.ident();
+                    let i2 = state.ident();
+                    let i3 = state.ident();
+                    let i4 = state.ident();
+                    let header =state.label();
+                    let body = state.label();
+                    let end = state.label();
+                    let r = format!(r#"
+br label %{header}
+{header}:
+{1} = load i32* %ptr;
+{2} = urem i32 {1}, {0}
+{3} = getelementptr i8* %mem, i32 {2}
+{4} = load i8* {3}
+{5} = icmp eq i8 0, {4}
+br i1 {5}, label %{end}, label %{body}
+{body}:"#, state.mem_size, i0, i1, i2, i3, i4, header=header, body=body, end=end);
+                    ir.push_str(&r);
+                    Self::gen_ir_nodes(ir, state, nodes);
+                    let r = format!(r#"
+br label %{header}
+{end}:"#, header=header, end=end);
+                    ir.push_str(&r);
+
                 },
             }
         }
