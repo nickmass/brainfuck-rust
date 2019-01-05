@@ -1,8 +1,8 @@
 use std::borrow::{Borrow, Cow};
 use std::fs::File;
-use std::io::{copy, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 extern crate clap;
 use clap::{App, Arg};
@@ -24,7 +24,7 @@ fn main() {
             Arg::with_name("compile")
                 .short("c")
                 .long("compile")
-                .help("Compile to binary with llvm and clang"),
+                .help("Compile to binary with llvm"),
         ).arg(
             Arg::with_name("INPUT")
                 .help("Sets the brainfuck file to parse")
@@ -64,50 +64,60 @@ fn main() {
     if gen_ir {
         let ir = bf.gen_ir();
         if compile_ir {
-            let mut llc = Command::new("llc")
+            let file_name: &str = file_name.borrow();
+            let output_name = Path::new(file_name).file_stem().unwrap().to_string_lossy();
+            let ir_file_name = format!("{}.ll", output_name);
+            let bc_file_name = format!("{}.bc", output_name);
+            let o_file_name = format!("{}.o", output_name);
+
+            let mut ir_file = File::create(&ir_file_name).unwrap();
+            let _ = ir_file.write_all(ir.as_bytes()).unwrap();
+
+            let opt = Command::new("opt")
                 .arg("-O3")
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
+                .arg("-strip-debug")
+                .arg(&ir_file_name)
+                .arg("-o")
+                .arg(&bc_file_name)
+                .status()
+                .expect("failed to execute opt");
+
+            if !opt.success() {
+                println!("failed to execute opt");
+                return;
+            }
+
+            let llc = Command::new("llc")
+                .arg("-O3")
+                .arg("-filetype=obj")
+                .arg(&bc_file_name)
+                .arg("-o")
+                .arg(&o_file_name)
+                .status()
                 .expect("failed to execute llc");
 
-            let _ = llc.stdin.as_mut().unwrap().write_all(ir.as_bytes());
-
-            let llc_output = llc.wait_with_output().expect("failed to get llc output");
-
-            if !llc_output.status.success() {
+            if !llc.success() {
                 println!("failed to execute llc");
                 return;
             }
-            let file_name: &str = file_name.borrow();
-            let output_name = Path::new(file_name).file_stem().unwrap();
-            let mut clang = Command::new("clang")
-                .arg("-O3")
-                .arg("-x")
-                .arg("assembler")
-                .arg("-s")
-                .arg("--static")
+
+            let lld = Command::new("ld.lld")
+                .arg("-static")
                 .arg("-nostdlib")
-                .arg("-Wl,--gc-sections")
-                .arg("-Wl,-z,norelro")
-                .arg("-Wl,--hash-style=gnu")
-                .arg("-Wl,--build-id=none")
+                .arg("--gc-sections")
+                .arg("-s")
+                .arg("-z")
+                .arg("norelro")
+                .arg("--hash-style=gnu")
+                .arg("--build-id=none")
+                .arg(&o_file_name)
                 .arg("-o")
-                .arg(format!("{}", output_name.to_string_lossy()))
-                .arg("-")
-                .stdin(Stdio::piped())
-                .spawn()
-                .expect("failed to execute clang");
+                .arg(output_name.to_string())
+                .status()
+                .expect("failed to execute lld");
 
-            copy(
-                &mut llc_output.stdout.as_slice(),
-                &mut clang.stdin.as_mut().unwrap(),
-            ).unwrap();
-
-            let r = clang.wait().expect("failed to execute clang");
-
-            if !r.success() {
-                println!("failed to execute clang");
+            if !lld.success() {
+                println!("failed to execute lld");
                 return;
             }
         } else {

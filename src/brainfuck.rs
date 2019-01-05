@@ -372,37 +372,37 @@ impl<'a> Program<'a> {
         let mut ir = String::new();
         let mut ir_state = IrState::new();
         let prelude = format!(
-            "
+            r"
+@mem = private global [{} x i8] zeroinitializer
 define void @_start() {{
-\t%mem = alloca i8, i32 {}
-\t%ptr = alloca i32
-\tstore i32 {}, i32* %ptr",
+    %ptr = alloca i64
+    store atomic volatile i64 {}, i64* %ptr monotonic, align 1",
             self.mem_size,
             self.mem_size / 2
         );
         ir.push_str(&prelude);
-        Self::gen_ir_nodes(&mut ir, &mut ir_state, &self.ast.nodes);
+        self.gen_ir_nodes(&mut ir, &mut ir_state, &self.ast.nodes);
         let epilogue = format!(
-            "
-\tcall i64 asm sideeffect \"syscall\", \"=r,{{rax}},{{rdi}}\"(i64 60, i64 0)
-\tret void
-}}"
+            r#"
+    call i64 asm sideeffect "syscall", "=r,{{rax}},{{rdi}}"(i64 60, i64 0)
+    ret void
+}}"#
         );
         ir.push_str(&epilogue);
         ir
     }
 
-    fn gen_ir_nodes(ir: &mut String, state: &mut IrState, nodes: &VecDeque<Node>) {
+    fn gen_ir_nodes(&self, ir: &mut String, state: &mut IrState, nodes: &VecDeque<Node>) {
         for node in nodes {
             match node {
                 &Node::IncPtr(v, _) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let r = format!(
-                        "
-\t{ptr} = load i32, i32* %ptr
-\t{mem_ptr} = add i32 {ptr}, {value}
-\tstore i32 {mem_ptr}, i32* %ptr",
+                        r"
+    {ptr} = load atomic i64, i64* %ptr monotonic, align 1 ; Increment Pointer
+    {mem_ptr} = add i64 {ptr}, {value}
+    store atomic i64 {mem_ptr}, i64* %ptr monotonic, align 1",
                         ptr = i0,
                         mem_ptr = i1,
                         value = v
@@ -413,10 +413,10 @@ define void @_start() {{
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let r = format!(
-                        "
-\t{ptr} = load i32, i32* %ptr
-\t{mem_ptr} = sub i32 {ptr}, {value}
-\tstore i32 {mem_ptr}, i32* %ptr",
+                        r"
+    {ptr} = load atomic i64, i64* %ptr monotonic, align 1 ; Decrement Pointer
+    {mem_ptr} = sub i64 {ptr}, {value}
+    store atomic i64 {mem_ptr}, i64* %ptr monotonic, align 1",
                         ptr = i0,
                         mem_ptr = i1,
                         value = v
@@ -429,12 +429,13 @@ define void @_start() {{
                     let i2 = state.ident();
                     let i3 = state.ident();
                     let r = format!(
-                        "
-\t{ptr} = load i32, i32* %ptr
-\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
-\t{mem_val} = load i8, i8* {mem_ptr}
-\t{new_mem_val} = add i8 {mem_val}, {value}
-\tstore i8 {new_mem_val}, i8* {mem_ptr}",
+                        r"
+    {ptr} = load atomic i64, i64* %ptr monotonic, align 1 ; Increment
+    {mem_ptr} = getelementptr [{mem_size} x i8], [{mem_size} x i8]* @mem, i64 0, i64 {ptr}
+    {mem_val} = load atomic volatile i8, i8* {mem_ptr} monotonic, align 1
+    {new_mem_val} = add i8 {mem_val}, {value}
+    store atomic volatile i8 {new_mem_val}, i8* {mem_ptr} monotonic, align 1",
+                        mem_size = self.mem_size,
                         ptr = i0,
                         mem_ptr = i1,
                         mem_val = i2,
@@ -449,12 +450,13 @@ define void @_start() {{
                     let i2 = state.ident();
                     let i3 = state.ident();
                     let r = format!(
-                        "
-\t{ptr} = load i32, i32* %ptr;
-\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
-\t{mem_val} = load i8, i8* {mem_ptr}
-\t{new_mem_val} = sub i8 {mem_val}, {value}
-\tstore i8 {new_mem_val}, i8* {mem_ptr}",
+                        r"
+    {ptr} = load atomic i64, i64* %ptr monotonic, align 1 ; Decrement
+    {mem_ptr} = getelementptr [{mem_size} x i8], [{mem_size} x i8]* @mem, i64 0, i64 {ptr}
+    {mem_val} = load atomic volatile i8, i8* {mem_ptr} monotonic, align 1
+    {new_mem_val} = sub i8 {mem_val}, {value}
+    store atomic volatile i8 {new_mem_val}, i8* {mem_ptr} monotonic, align 1",
+                        mem_size = self.mem_size,
                         ptr = i0,
                         mem_ptr = i1,
                         mem_val = i2,
@@ -467,10 +469,11 @@ define void @_start() {{
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let r = format!(
-                        "
-\t{ptr} = load i32, i32* %ptr;
-\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
-\tcall i64 asm sideeffect \"syscall\", \"=r,{{rax}},{{rdi}},{{rsi}},{{rdx}}\"(i64 1, i64 1, i8* {mem_ptr}, i64 1)",
+                        r#"
+    {ptr} = load atomic i64, i64* %ptr monotonic, align 1 ; Output
+    {mem_ptr} = getelementptr [{mem_size} x i8], [{mem_size} x i8]* @mem, i64 0, i64 {ptr}
+    call i64 asm sideeffect "syscall", "=r,{{rax}},{{rdi}},{{rsi}},{{rdx}}"(i64 1, i64 1, i8* {mem_ptr}, i64 1)"#,
+                        mem_size = self.mem_size,
                         ptr = i0,
                         mem_ptr = i1,
                     );
@@ -480,10 +483,11 @@ define void @_start() {{
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let r = format!(
-                        "
-\t{ptr} = load i32, i32* %ptr
-\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
-\tcall i64 asm sideeffect \"syscall\", \"=r,{{rax}},{{rdi}},{{rsi}},{{rdx}}\"(i64 0, i64 0, i8* {mem_ptr}, i64 1)",
+                        r#"
+    {ptr} = load atomic i64, i64* %ptr monotonic, align 1 ; Input
+    {mem_ptr} = getelementptr [{mem_size} x i8], [{mem_size} x i8]* @mem, i64 0, i64 {ptr}
+    call i64 asm sideeffect "syscall", "=r,{{rax}},{{rdi}},{{rsi}},{{rdx}}"(i64 0, i64 0, i8* {mem_ptr}, i64 1)"#,
+                        mem_size = self.mem_size,
                         ptr = i0,
                         mem_ptr = i1,
                     );
@@ -498,16 +502,17 @@ define void @_start() {{
                     let body = state.label();
                     let end = state.label();
                     let r = format!(
-                        "
-\tbr label %{header}
+                        r"
+    br label %{header} ; Loop
 {header}:
-\t{ptr} = load i32, i32* %ptr;
-\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
-\t{mem_val} = load i8, i8* {mem_ptr}
-\t{comp} = icmp eq i8 0, {mem_val}
-\tbr i1 {comp}, label %{end}, label %{body}
+    {ptr} = load atomic i64, i64* %ptr monotonic, align 1
+    {mem_ptr} = getelementptr [{mem_size} x i8], [{mem_size} x i8]* @mem, i64 0, i64 {ptr}
+    {mem_val} = load atomic volatile i8, i8* {mem_ptr} monotonic, align 1
+    {comp} = icmp eq i8 0, {mem_val}
+    br i1 {comp}, label %{end}, label %{body}
 {body}:",
                         ptr = i0,
+                        mem_size = self.mem_size,
                         mem_ptr = i1,
                         mem_val = i2,
                         comp = i3,
@@ -516,10 +521,10 @@ define void @_start() {{
                         end = end
                     );
                     ir.push_str(&r);
-                    Self::gen_ir_nodes(ir, state, nodes);
+                    self.gen_ir_nodes(ir, state, nodes);
                     let r = format!(
-                        "
-\tbr label %{header}
+                        r"
+    br label %{header}
 {end}:",
                         header = header,
                         end = end

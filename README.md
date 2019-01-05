@@ -8,7 +8,7 @@ USAGE:
     brainfuck [FLAGS] <INPUT>
 
 FLAGS:
-    -c, --compile    Compile to binary with llvm and clang
+    -c, --compile    Compile to binary with llvm
     -S, --emit-ir    Outputs llvm-ir to stdout
     -h, --help       Prints help information
     -V, --version    Prints version information
