@@ -1,14 +1,21 @@
 extern crate libc;
 
-use std::io::Read;
 use std::collections::VecDeque;
+use std::io::Read;
 
 pub struct Brainfuck<'a> {
     program: Program<'a>,
 }
 
 impl<'a> Brainfuck<'a> {
-    pub fn parse<T>(reader: T, file_name: &'a str, directory: &'a str) -> Result<Brainfuck<'a>, ParseError<'a>> where T: Read {
+    pub fn parse<T>(
+        reader: T,
+        file_name: &'a str,
+        directory: &'a str,
+    ) -> Result<Brainfuck<'a>, ParseError<'a>>
+    where
+        T: Read,
+    {
         let mut symbols = VecDeque::new();
         let mut line = 1;
         let mut column = 1;
@@ -19,7 +26,9 @@ impl<'a> Brainfuck<'a> {
                 line: line,
                 column: column,
             };
-            if byte.is_err() { break; }
+            if byte.is_err() {
+                break;
+            }
             let byte = byte.unwrap();
             match byte {
                 b'>' => symbols.push_back(Symbol::IncPtr(debug)),
@@ -33,7 +42,7 @@ impl<'a> Brainfuck<'a> {
                 b'\n' => {
                     line += 1;
                     column = 0;
-                },
+                }
                 _ => (),
             }
             column += 1;
@@ -44,12 +53,12 @@ impl<'a> Brainfuck<'a> {
         ast.map(|mut x| {
             x.optimize();
             Brainfuck {
-                program: Program::new(x, 100000)
+                program: Program::new(x, 100000),
             }
         })
     }
 
-    pub fn exec(&'a self) -> Result<(), ExecError<'a>>{
+    pub fn exec(&'a self) -> Result<(), ExecError<'a>> {
         self.program.exec()
     }
 
@@ -104,13 +113,13 @@ enum Node<'a> {
 
 #[derive(Debug)]
 struct Ast<'a> {
-    nodes: VecDeque<Node<'a>>
+    nodes: VecDeque<Node<'a>>,
 }
 
 impl<'a> Ast<'a> {
     fn parse(mut symbols: VecDeque<Symbol<'a>>) -> Result<Ast<'a>, ParseError<'a>> {
         let mut ast = Ast {
-            nodes: VecDeque::new()
+            nodes: VecDeque::new(),
         };
 
         while {
@@ -120,13 +129,15 @@ impl<'a> Ast<'a> {
                 ParseResult::CloseLoop(d) => return Err(ParseError::UnmatchedLoop(d)),
                 ParseResult::Eof => false,
             }
-        }{}
+        } {}
 
         Ok(ast)
     }
 
-    fn add_node(nodes: &mut VecDeque<Node<'a>>, symbols: &mut VecDeque<Symbol<'a>>)
-                -> ParseResult<'a> {
+    fn add_node(
+        nodes: &mut VecDeque<Node<'a>>,
+        symbols: &mut VecDeque<Symbol<'a>>,
+    ) -> ParseResult<'a> {
         let symbol = symbols.pop_front();
 
         match symbol {
@@ -136,47 +147,43 @@ impl<'a> Ast<'a> {
                     match Self::add_node(&mut loop_body, symbols) {
                         ParseResult::UnmatchedLoop(d) => {
                             return ParseResult::UnmatchedLoop(d);
-                        },
+                        }
                         ParseResult::CloseLoop(_) => false,
                         ParseResult::Ok => true,
                         ParseResult::Eof => {
                             return ParseResult::UnmatchedLoop(d);
                         }
                     }
-                }{}
+                } {}
                 nodes.push_back(Node::Loop(loop_body, d));
                 ParseResult::Ok
-            },
-            Some(Symbol::CloseBlock(d)) => {
-                ParseResult::CloseLoop(d)
-            },
+            }
+            Some(Symbol::CloseBlock(d)) => ParseResult::CloseLoop(d),
             Some(Symbol::IncPtr(d)) => {
                 nodes.push_back(Node::IncPtr(1, d));
                 ParseResult::Ok
-            },
+            }
             Some(Symbol::DecPtr(d)) => {
                 nodes.push_back(Node::DecPtr(1, d));
                 ParseResult::Ok
-            },
+            }
             Some(Symbol::Increment(d)) => {
                 nodes.push_back(Node::Increment(1, d));
                 ParseResult::Ok
-            },
+            }
             Some(Symbol::Decrement(d)) => {
                 nodes.push_back(Node::Decrement(1, d));
                 ParseResult::Ok
-            },
+            }
             Some(Symbol::Output(d)) => {
                 nodes.push_back(Node::Output(d));
                 ParseResult::Ok
-            },
+            }
             Some(Symbol::Input(d)) => {
                 nodes.push_back(Node::Input(d));
                 ParseResult::Ok
-            },
-            None => {
-                ParseResult::Eof
             }
+            None => ParseResult::Eof,
         }
     }
 
@@ -193,7 +200,7 @@ impl<'a> Ast<'a> {
                     let mut loop_body = VecDeque::new();
                     Self::optimize_nodes(&mut loop_body, &mut n);
                     opt_nodes.push_back(Node::Loop(loop_body, d));
-                },
+                }
                 Node::IncPtr(v, d) => {
                     let mut value = v;
                     while let Some(&Node::IncPtr(v, _)) = nodes.front() {
@@ -201,7 +208,7 @@ impl<'a> Ast<'a> {
                         nodes.pop_front();
                     }
                     opt_nodes.push_back(Node::IncPtr(value, d));
-                },
+                }
                 Node::DecPtr(v, d) => {
                     let mut value = v;
                     while let Some(&Node::DecPtr(v, _)) = nodes.front() {
@@ -209,7 +216,7 @@ impl<'a> Ast<'a> {
                         nodes.pop_front();
                     }
                     opt_nodes.push_back(Node::DecPtr(value, d));
-                },
+                }
                 Node::Increment(v, d) => {
                     let mut value = v;
                     while let Some(&Node::Increment(v, _)) = nodes.front() {
@@ -217,7 +224,7 @@ impl<'a> Ast<'a> {
                         nodes.pop_front();
                     }
                     opt_nodes.push_back(Node::Increment(value, d));
-                },
+                }
                 Node::Decrement(v, d) => {
                     let mut value = v;
                     while let Some(&Node::Decrement(v, _)) = nodes.front() {
@@ -225,10 +232,10 @@ impl<'a> Ast<'a> {
                         nodes.pop_front();
                     }
                     opt_nodes.push_back(Node::Decrement(value, d));
-                },
+                }
                 Node::Input(d) => {
                     opt_nodes.push_back(Node::Input(d));
-                },
+                }
                 Node::Output(d) => {
                     opt_nodes.push_back(Node::Output(d));
                 }
@@ -237,22 +244,23 @@ impl<'a> Ast<'a> {
     }
 }
 
-
 struct Program<'a> {
     ast: Ast<'a>,
-    mem_size: usize, 
+    mem_size: usize,
 }
 
 struct ProgramState {
     ptr: usize,
     mem: Vec<u8>,
-    mem_size: usize, 
+    mem_size: usize,
 }
 
 impl ProgramState {
     fn new(mem_size: usize) -> ProgramState {
         let mut mem = Vec::with_capacity(mem_size);
-        for _ in 0..mem_size { mem.push(0); }
+        for _ in 0..mem_size {
+            mem.push(0);
+        }
 
         ProgramState {
             ptr: mem_size / 2,
@@ -272,9 +280,7 @@ struct IrState {
 
 impl IrState {
     fn new() -> IrState {
-        IrState {
-            next_label: 0,
-        }
+        IrState { next_label: 0 }
     }
 
     fn ident(&mut self) -> String {
@@ -289,7 +295,7 @@ impl IrState {
 }
 
 pub enum ExecError<'a> {
-    OutOfBounds(&'a DebugInfo<'a>)
+    OutOfBounds(&'a DebugInfo<'a>),
 }
 
 impl<'a> Program<'a> {
@@ -307,42 +313,44 @@ impl<'a> Program<'a> {
         Self::exec_nodes(&mut state, &self.ast.nodes)
     }
 
-    fn exec_nodes(state: &mut ProgramState, nodes: &'a VecDeque<Node<'a>>)
-                  -> Result<(), ExecError<'a>> {
+    fn exec_nodes(
+        state: &mut ProgramState,
+        nodes: &'a VecDeque<Node<'a>>,
+    ) -> Result<(), ExecError<'a>> {
         for node in nodes {
             match node {
                 &Node::IncPtr(v, _) => state.ptr = state.ptr.wrapping_add(v),
                 &Node::DecPtr(v, _) => state.ptr = state.ptr.wrapping_sub(v),
                 &Node::Increment(v, ref d) => {
                     if state.is_oob() {
-                        return Err(ExecError::OutOfBounds(d))
+                        return Err(ExecError::OutOfBounds(d));
                     }
                     let val = state.mem[state.ptr].wrapping_add(v);
                     state.mem[state.ptr] = val;
-                },
+                }
                 &Node::Decrement(v, ref d) => {
                     if state.is_oob() {
-                        return Err(ExecError::OutOfBounds(d))
+                        return Err(ExecError::OutOfBounds(d));
                     }
                     let val = state.mem[state.ptr].wrapping_sub(v);
                     state.mem[state.ptr] = val;
-                },
+                }
                 &Node::Output(ref d) => {
                     if state.is_oob() {
-                        return Err(ExecError::OutOfBounds(d))
+                        return Err(ExecError::OutOfBounds(d));
                     }
                     print!("{}", state.mem[state.ptr] as char)
-                },
+                }
                 &Node::Input(ref d) => {
                     let val = unsafe { libc::getchar() };
                     if state.is_oob() {
-                        return Err(ExecError::OutOfBounds(d))
+                        return Err(ExecError::OutOfBounds(d));
                     }
                     state.mem[state.ptr] = val as u8;
-                },
+                }
                 &Node::Loop(ref nodes, ref d) => {
                     if state.is_oob() {
-                        return Err(ExecError::OutOfBounds(d))
+                        return Err(ExecError::OutOfBounds(d));
                     }
                     while state.mem[state.ptr] != 0 {
                         match Self::exec_nodes(state, nodes) {
@@ -350,10 +358,10 @@ impl<'a> Program<'a> {
                             _ => (),
                         }
                         if state.is_oob() {
-                            return Err(ExecError::OutOfBounds(d))
+                            return Err(ExecError::OutOfBounds(d));
                         }
                     }
-                },
+                }
             }
         }
 
@@ -363,18 +371,23 @@ impl<'a> Program<'a> {
     fn gen_ir(&self) -> String {
         let mut ir = String::new();
         let mut ir_state = IrState::new();
-        let prelude = format!("
-declare i32 @getchar()
-declare i32 @putchar(i32)
-define i32 @main() {{
+        let prelude = format!(
+            "
+define void @_start() {{
 \t%mem = alloca i8, i32 {}
 \t%ptr = alloca i32
-\tstore i32 {}, i32* %ptr", self.mem_size, self.mem_size / 2);
+\tstore i32 {}, i32* %ptr",
+            self.mem_size,
+            self.mem_size / 2
+        );
         ir.push_str(&prelude);
         Self::gen_ir_nodes(&mut ir, &mut ir_state, &self.ast.nodes);
-        let epilogue = format!("
-\tret i32 0
-}}");
+        let epilogue = format!(
+            "
+\tcall i64 asm sideeffect \"syscall\", \"=r,{{rax}},{{rdi}}\"(i64 60, i64 0)
+\tret void
+}}"
+        );
         ir.push_str(&epilogue);
         ir
     }
@@ -385,104 +398,134 @@ define i32 @main() {{
                 &Node::IncPtr(v, _) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
-                    let r = format!("
-\t{ptr} = load i32* %ptr
+                    let r = format!(
+                        "
+\t{ptr} = load i32, i32* %ptr
 \t{mem_ptr} = add i32 {ptr}, {value}
 \tstore i32 {mem_ptr}, i32* %ptr",
-                                    ptr=i0, mem_ptr=i1, value=v);
+                        ptr = i0,
+                        mem_ptr = i1,
+                        value = v
+                    );
                     ir.push_str(&r);
-                },
+                }
                 &Node::DecPtr(v, _) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
-                    let r = format!("
-\t{ptr} = load i32* %ptr
+                    let r = format!(
+                        "
+\t{ptr} = load i32, i32* %ptr
 \t{mem_ptr} = sub i32 {ptr}, {value}
 \tstore i32 {mem_ptr}, i32* %ptr",
-                                    ptr=i0, mem_ptr=i1, value=v);
+                        ptr = i0,
+                        mem_ptr = i1,
+                        value = v
+                    );
                     ir.push_str(&r);
-                },
+                }
                 &Node::Increment(v, _) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let r = format!("
-\t{ptr} = load i32* %ptr;
-\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
-\t{mem_val} = load i8* {mem_ptr}
+                    let r = format!(
+                        "
+\t{ptr} = load i32, i32* %ptr
+\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
+\t{mem_val} = load i8, i8* {mem_ptr}
 \t{new_mem_val} = add i8 {mem_val}, {value}
 \tstore i8 {new_mem_val}, i8* {mem_ptr}",
-                                    ptr=i0,  mem_ptr=i1, mem_val=i2, new_mem_val=i3, value=v);
+                        ptr = i0,
+                        mem_ptr = i1,
+                        mem_val = i2,
+                        new_mem_val = i3,
+                        value = v
+                    );
                     ir.push_str(&r);
-                },
+                }
                 &Node::Decrement(v, _) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let r = format!("
-\t{ptr} = load i32* %ptr;
-\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
-\t{mem_val} = load i8* {mem_ptr}
+                    let r = format!(
+                        "
+\t{ptr} = load i32, i32* %ptr;
+\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
+\t{mem_val} = load i8, i8* {mem_ptr}
 \t{new_mem_val} = sub i8 {mem_val}, {value}
 \tstore i8 {new_mem_val}, i8* {mem_ptr}",
-                    ptr=i0,  mem_ptr=i1, mem_val=i2, new_mem_val=i3, value=v);
+                        ptr = i0,
+                        mem_ptr = i1,
+                        mem_val = i2,
+                        new_mem_val = i3,
+                        value = v
+                    );
                     ir.push_str(&r);
-                },
+                }
                 &Node::Output(_) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
-                    let i2 = state.ident();
-                    let i3 = state.ident();
-                    let r = format!("
-\t{ptr} = load i32* %ptr;
-\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
-\t{mem_val} = load i8* {mem_ptr}
-\t{mem_val_32} = sext i8 {mem_val} to i32
-\tcall i32 @putchar(i32 {mem_val_32})",
-                                    ptr=i0,  mem_ptr=i1, mem_val=i2, mem_val_32=i3);
+                    let r = format!(
+                        "
+\t{ptr} = load i32, i32* %ptr;
+\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
+\tcall i64 asm sideeffect \"syscall\", \"=r,{{rax}},{{rdi}},{{rsi}},{{rdx}}\"(i64 1, i64 1, i8* {mem_ptr}, i64 1)",
+                        ptr = i0,
+                        mem_ptr = i1,
+                    );
                     ir.push_str(&r);
-                },
+                }
                 &Node::Input(_) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
-                    let i2 = state.ident();
-                    let i3 = state.ident();
-                    let r = format!("
-\t{ptr} = load i32* %ptr;
-\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
-\t{input} = call i32 @getchar()
-\t{input_8} = trunc i32 {input} to i8
-\tstore i8 {input_8}, i8* {mem_ptr}",
-                                    ptr=i0,  mem_ptr=i1, input=i2, input_8=i3);
+                    let r = format!(
+                        "
+\t{ptr} = load i32, i32* %ptr
+\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
+\tcall i64 asm sideeffect \"syscall\", \"=r,{{rax}},{{rdi}},{{rsi}},{{rdx}}\"(i64 0, i64 0, i8* {mem_ptr}, i64 1)",
+                        ptr = i0,
+                        mem_ptr = i1,
+                    );
                     ir.push_str(&r);
-                },
+                }
                 &Node::Loop(ref nodes, _) => {
                     let i0 = state.ident();
                     let i1 = state.ident();
                     let i2 = state.ident();
                     let i3 = state.ident();
-                    let header =state.label();
+                    let header = state.label();
                     let body = state.label();
                     let end = state.label();
-                    let r = format!("
+                    let r = format!(
+                        "
 \tbr label %{header}
 {header}:
-\t{ptr} = load i32* %ptr;
-\t{mem_ptr} = getelementptr i8* %mem, i32 {ptr}
-\t{mem_val} = load i8* {mem_ptr}
+\t{ptr} = load i32, i32* %ptr;
+\t{mem_ptr} = getelementptr i8, i8* %mem, i32 {ptr}
+\t{mem_val} = load i8, i8* {mem_ptr}
 \t{comp} = icmp eq i8 0, {mem_val}
 \tbr i1 {comp}, label %{end}, label %{body}
-{body}:", ptr=i0, mem_ptr=i1, mem_val=i2, comp=i3, header=header, body=body, end=end);
+{body}:",
+                        ptr = i0,
+                        mem_ptr = i1,
+                        mem_val = i2,
+                        comp = i3,
+                        header = header,
+                        body = body,
+                        end = end
+                    );
                     ir.push_str(&r);
                     Self::gen_ir_nodes(ir, state, nodes);
-                    let r = format!("
+                    let r = format!(
+                        "
 \tbr label %{header}
-{end}:", header=header, end=end);
+{end}:",
+                        header = header,
+                        end = end
+                    );
                     ir.push_str(&r);
-
-                },
+                }
             }
         }
     }
